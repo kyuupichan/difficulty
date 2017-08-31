@@ -80,11 +80,11 @@ def print_state():
                   state.hashrate, state.rev_ratio, state.greedy_frac == 1.0))
 
 
-# Initial state is just twelve blocks
+# Initial state is 18 blocks for MTP
 states = [State(INITIAL_HEIGHT + n, INITIAL_TIMESTAMP + n * 600,
                 INITIAL_BCC_BITS, INITIAL_FX, INITIAL_HASHRATE,
                 1.0, False)
-          for n in range(-11, 0)]
+          for n in range(-18, 0)]
 
 def revenue_ratio(fx, BCC_target):
     '''Returns the instantaneous SWC revenue rate divided by the
@@ -106,8 +106,8 @@ def median_time_past(states):
 
 def next_bits():
     # Calculate 6-block MTP diff
-    MTP_0 = median_time_past(states[-6:])
-    MTP_6 = median_time_past(states[-12:-6])
+    MTP_0 = median_time_past(states[-11:])
+    MTP_6 = median_time_past(states[-17:-6])
     MTP_diff = MTP_0 - MTP_6
     bits = states[-1].bits
     if MTP_diff >= MTP_HIGH_BARRIER:
