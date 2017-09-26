@@ -43,13 +43,14 @@ INITIAL_HEIGHT = 481824
 
 # MTP window targetting.  High and low barriers have been chosen
 # to give ~600s block times in a stable hash rate environment
-MTP_HIGH_BARRIER = 60 * 100
-MTP_TARGET_RAISE_FRAC = 256   # Reduce difficulty ~ 0.4%
-MTP_LOW_BARRIER = 60 * 29
+# 256/256: 100/30   128/256: 112/30
+MTP_HIGH_BARRIER = 60 * 112
+MTP_TARGET_RAISE_FRAC = 128   # Reduce difficulty ~ 0.8%
+MTP_LOW_BARRIER = 60 * 30
 MTP_TARGET_DROP_FRAC = 256    # Raise difficulty ~ 0.4%
 
 # Steady hashrate mines the BCC chain all the time
-STEADY_HASHRATE = 200
+STEADY_HASHRATE = 250
 
 # Variable hash is split across both chains according to relative
 # revenue.  If the revenue ratio for either chain is at least 15%
@@ -60,10 +61,10 @@ VARIABLE_PCT = 15   # 85% to 115%
 VARIABLE_WINDOW = 6  # No of blocks averaged to determine revenue ratio
 
 # Greedy hashrate switches chain if that chain is more profitable for
-# 6 BCC blocks.  It will only bother to switch if it has consistently
-# been 3% more profitable.
+# GREEDY_WINDOW BCC blocks.  It will only bother to switch if it has
+# consistently been GREEDY_PCT more profitable.
 GREEDY_HASHRATE = 2000
-GREEDY_PCT = 4
+GREEDY_PCT = 10
 GREEDY_WINDOW = 6
 
 
@@ -112,7 +113,7 @@ def next_bits():
     MTP_6 = median_time_past(states[-17:-6])
     MTP_diff = MTP_0 - MTP_6
     bits = states[-1].bits
-    if MTP_diff >= MTP_HIGH_BARRIER:
+    if MTP_diff > MTP_HIGH_BARRIER:
         target = bits_to_target(bits)
         target += target // MTP_TARGET_RAISE_FRAC
         bits = target_to_bits(target)
@@ -173,7 +174,7 @@ def next_step():
 
 if __name__ == '__main__':
     print_state()
-    for n in range(5000):
+    for n in range(10000):
         next_step()
         print_state()
 
