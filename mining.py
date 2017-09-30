@@ -43,14 +43,16 @@ INITIAL_HEIGHT = 481824
 
 # MTP window targetting.  High and low barriers have been chosen
 # to give ~600s block times in a stable hash rate environment
-# 256/256: 100/30   128/256: 112/30
-MTP_HIGH_BARRIER = 60 * 112
-MTP_TARGET_RAISE_FRAC = 128   # Reduce difficulty ~ 0.8%
+# MTP_6: 256/256: 100/30   128/256: 112/30  64/256: 128/30
+# MTP_3: 128/256: 55/15  64/256: 55/15
+MTP_WINDOW = 6
+MTP_HIGH_BARRIER = 60 * 128
+MTP_TARGET_RAISE_FRAC = 64   # Reduce difficulty ~ 1.6%
 MTP_LOW_BARRIER = 60 * 30
 MTP_TARGET_DROP_FRAC = 256    # Raise difficulty ~ 0.4%
 
 # Steady hashrate mines the BCC chain all the time
-STEADY_HASHRATE = 250
+STEADY_HASHRATE = 300
 
 # Variable hash is split across both chains according to relative
 # revenue.  If the revenue ratio for either chain is at least 15%
@@ -108,10 +110,10 @@ def median_time_past(states):
     return sorted(times)[len(times) // 2]
 
 def next_bits():
-    # Calculate 6-block MTP diff
+    # Calculate N-block MTP diff
     MTP_0 = median_time_past(states[-11:])
-    MTP_6 = median_time_past(states[-17:-6])
-    MTP_diff = MTP_0 - MTP_6
+    MTP_N = median_time_past(states[-11-MTP_WINDOW:-MTP_WINDOW])
+    MTP_diff = MTP_0 - MTP_N
     bits = states[-1].bits
     if MTP_diff > MTP_HIGH_BARRIER:
         target = bits_to_target(bits)
