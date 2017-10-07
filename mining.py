@@ -4,6 +4,7 @@ import datetime
 import math
 from random import random
 from collections import namedtuple
+from operator import attrgetter
 
 def bits_to_target(bits):
     size = bits >> 24
@@ -32,6 +33,16 @@ def target_to_bits(target):
     assert size < 256
     return compact | size << 24
 
+def bits_to_work(bits):
+    return (2 << 255) // (bits_to_target(bits) + 1)
+
+def target_to_hex(target):
+    h = hex(target)[2:]
+    return '0' * (64 - len(h)) + h
+
+# Set to true to run deadalnix's algo
+DEADALNIX = True
+
 TARGET_1 = bits_to_target(486604799)
 
 INITIAL_BCC_BITS = 403458999
@@ -40,6 +51,7 @@ INITIAL_FX = 0.18
 INITIAL_TIMESTAMP = 1503430225
 INITIAL_HASHRATE = 500
 INITIAL_HEIGHT = 481824
+INITIAL_SINGLE_WORK = bits_to_work(INITIAL_BCC_BITS)
 
 # MTP window targetting.  High and low barriers have been chosen
 # to give ~600s block times in a stable hash rate environment
@@ -70,8 +82,8 @@ GREEDY_PCT = 10
 GREEDY_WINDOW = 6
 
 
-State = namedtuple('State', 'height timestamp bits fx hashrate rev_ratio '
-                   'greedy_frac')
+State = namedtuple('State', 'height timestamp bits chainwork fx hashrate '
+                   'rev_ratio greedy_frac')
 
 def print_state():
     state = states[-1]
@@ -85,11 +97,12 @@ def print_state():
                   state.hashrate, state.rev_ratio, state.greedy_frac == 1.0))
 
 
-# Initial state is 18 blocks for MTP
+# Initial state is 2020 steady blocks
+BLOCKS = 2020
 states = [State(INITIAL_HEIGHT + n, INITIAL_TIMESTAMP + n * 600,
-                INITIAL_BCC_BITS, INITIAL_FX, INITIAL_HASHRATE,
-                1.0, False)
-          for n in range(-18, 0)]
+                INITIAL_BCC_BITS, INITIAL_SINGLE_WORK * (n + BLOCKS + 1),
+                INITIAL_FX, INITIAL_HASHRATE, 1.0, False)
+          for n in range(-BLOCKS, 0)]
 
 def revenue_ratio(fx, BCC_target):
     '''Returns the instantaneous SWC revenue rate divided by the
@@ -129,6 +142,61 @@ def next_bits():
         print("Difficulty held: {}".format(MTP_diff))
     return bits
 
+def suitable_block_index(index):
+    assert index >= 3
+    indices = [index - 2, index - 1, index]
+
+    if states[indices[0]].timestamp > states[indices[2]].timestamp:
+        indices[0], indices[2] = indices[2], indices[0]
+
+    if states[indices[0]].timestamp > states[indices[1]].timestamp:
+        indices[0], indices[1] = indices[1], indices[0]
+
+    if states[indices[1]].timestamp > states[indices[2]].timestamp:
+        indices[1], indices[2] = indices[2], indices[1]
+
+    return indices[1]
+
+def compute_index_fast(index_last):
+    for candidate in range(index_last - 3, 0, -1):
+        index_fast = suitable_block_index(candidate)
+        if index_last - index_fast < 5:
+            continue
+        if (states[index_last].timestamp - states[index_fast].timestamp
+            >= 13 * 600):
+            return index_fast
+    raise AssertionError('should not happen')
+
+def compute_target(first_index, last_index):
+    work = states[last_index].chainwork - states[first_index].chainwork
+    work *= 600
+    work //= states[last_index].timestamp - states[first_index].timestamp
+    return (2 << 255) // work - 1
+
+def next_bits_deadalnix():
+    N = len(states) - 1
+    index_last = suitable_block_index(N)
+    index_first = suitable_block_index(N - 2016)
+    interval_target = compute_target(index_first, index_last)
+    index_fast = compute_index_fast(index_last)
+    fast_target = compute_target(index_fast, index_last)
+
+    next_target = interval_target
+    if (fast_target < interval_target - (interval_target >> 2) or
+        fast_target > interval_target + (interval_target >> 2)):
+        next_target = fast_target
+
+    prev_target = bits_to_target(states[-1].bits)
+    min_target = prev_target - (prev_target >> 3)
+    if next_target < min_target:
+        return target_to_bits(min_target)
+
+    max_target = prev_target + (prev_target >> 3)
+    if next_target > max_target:
+        return target_to_bits(max_target)
+
+    return target_to_bits(next_target)
+
 def block_time(mean_time):
     # Sample the exponential distn
     sample = random()
@@ -159,7 +227,10 @@ def next_step():
                 + VARIABLE_HASHRATE * var_fraction
                 + GREEDY_HASHRATE * greedy_frac)
     # Calculate our dynamic difficulty
-    bits = next_bits()
+    if DEADALNIX:
+        bits = next_bits_deadalnix()
+    else:
+        bits = next_bits()
     target = bits_to_target(bits)
     # See how long we take to mine a block
     mean_hashes = pow(2, 256) // target
@@ -170,20 +241,25 @@ def next_step():
     fx = states[-1].fx * (1.0 + (random() - 0.5) / 200)
     rev_ratio = revenue_ratio(fx, target)
 
+    chainwork = states[-1].chainwork + bits_to_work(bits)
+
     # add a state
-    states.append(State(states[-1].height + 1, timestamp, bits, fx, hashrate,
-                        rev_ratio, greedy_frac))
+    states.append(State(states[-1].height + 1, timestamp, bits, chainwork,
+                        fx, hashrate, rev_ratio, greedy_frac))
 
 if __name__ == '__main__':
+    N = len(states)
     print_state()
     for n in range(10000):
         next_step()
         print_state()
+    states = states[N:]
 
-    print("Mean block time: {}s"
-          .format((states[-1].timestamp - states[0].timestamp) / len(states)))
-    block_times = [(s.timestamp - t.timestamp)
-                   for s, t in zip(states[1:], states[:-1])]
+    mean = (states[-1].timestamp - states[0].timestamp) / len(states)
+    block_times = [states[n + 1].timestamp - states[n].timestamp
+                   for n in range(len(states) - 1)]
     median = sorted(block_times)[len(block_times) // 2]
+
+    print("Mean block time: {}s".format(mean))
     print("Median block time: {}s".format(median))
     print("Max block time: {}s".format(max(block_times)))
