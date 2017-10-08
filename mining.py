@@ -260,7 +260,7 @@ if __name__ == '__main__':
         print_state()
     states = states[N:]
 
-    mean = (states[-1].timestamp - states[0].timestamp) / len(states)
+    mean = (states[-1].timestamp - states[0].timestamp) / (len(states) - 1)
     block_times = [states[n + 1].timestamp - states[n].timestamp
                    for n in range(len(states) - 1)]
     median = sorted(block_times)[len(block_times) // 2]
