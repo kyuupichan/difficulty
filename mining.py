@@ -128,19 +128,24 @@ def next_bits():
     MTP_N = median_time_past(states[-11-MTP_WINDOW:-MTP_WINDOW])
     MTP_diff = MTP_0 - MTP_N
     bits = states[-1].bits
+    target = bits_to_target(bits)
+
+    # Long term block production time stabiliser
+    t = states[-1].timestamp - states[-2017].timestamp
+    if t < 600 * 2016 * 95 // 100:
+        print("2016 block time difficulty raise")
+        target -= (target >> 8)
+
     if MTP_diff > MTP_HIGH_BARRIER:
-        target = bits_to_target(bits)
         target += target // MTP_TARGET_RAISE_FRAC
-        bits = target_to_bits(target)
         print("Difficulty drop: {}".format(MTP_diff))
     elif MTP_diff < MTP_LOW_BARRIER:
-        target = bits_to_target(bits)
         target -= target // MTP_TARGET_DROP_FRAC
-        bits = target_to_bits(target)
         print("Difficulty raise: {}".format(MTP_diff))
     else:
         print("Difficulty held: {}".format(MTP_diff))
-    return bits
+
+    return target_to_bits(target)
 
 def suitable_block_index(index):
     assert index >= 3
