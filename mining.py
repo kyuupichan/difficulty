@@ -2,6 +2,7 @@
 
 import datetime
 import math
+import sys
 from random import random
 from collections import namedtuple
 from operator import attrgetter
@@ -83,26 +84,29 @@ GREEDY_WINDOW = 6
 
 
 State = namedtuple('State', 'height timestamp bits chainwork fx hashrate '
-                   'rev_ratio greedy_frac')
+                   'rev_ratio greedy_frac msg')
+
+states = []
+
+def print_headers():
+    print(', '.join(['Height', 'Block Time', 'Unix', 'Timestamp',
+                     'Difficulty (bn)', 'Hashrate (PH/s)', 'Rev Ratio',
+                     'Greedy?', 'Comments']))
 
 def print_state():
     state = states[-1]
     block_time = state.timestamp - states[-2].timestamp
     t = datetime.datetime.fromtimestamp(state.timestamp)
     difficulty = TARGET_1 / bits_to_target(state.bits)
-    print('Height: {} BlockTime {}s Timestamp: {:%Y-%m-%d %H:%M:%S} '
-          'Difficulty {:.2f}bn HashRate: {:.0f}PH Rev Ratio: {:0.3f} '
-          'Greedy: {}'
-          .format(state.height, block_time, t, difficulty / 1e9,
-                  state.hashrate, state.rev_ratio, state.greedy_frac == 1.0))
-
-
-# Initial state is 2020 steady blocks
-BLOCKS = 2020
-states = [State(INITIAL_HEIGHT + n, INITIAL_TIMESTAMP + n * 600,
-                INITIAL_BCC_BITS, INITIAL_SINGLE_WORK * (n + BLOCKS + 1),
-                INITIAL_FX, INITIAL_HASHRATE, 1.0, False)
-          for n in range(-BLOCKS, 0)]
+    print(', '.join(['{:d}'.format(state.height),
+                     '{:d}'.format(block_time),
+                     '{:d}'.format(state.timestamp),
+                     '{:%Y-%m-%d %H:%M:%S}'.format(t),
+                     '{:.2f}'.format(difficulty / 1e9),
+                     '{:.0f}'.format(state.hashrate),
+                     '{:.3f}'.format(state.rev_ratio),
+                     'Yes' if state.greedy_frac == 1.0 else 'No',
+                     state.msg]))
 
 def revenue_ratio(fx, BCC_target):
     '''Returns the instantaneous SWC revenue rate divided by the
@@ -122,7 +126,7 @@ def median_time_past(states):
     times = [state.timestamp for state in states]
     return sorted(times)[len(times) // 2]
 
-def next_bits():
+def next_bits(msg):
     # Calculate N-block MTP diff
     MTP_0 = median_time_past(states[-11:])
     MTP_N = median_time_past(states[-11-MTP_WINDOW:-MTP_WINDOW])
@@ -133,17 +137,17 @@ def next_bits():
     # Long term block production time stabiliser
     t = states[-1].timestamp - states[-2017].timestamp
     if t < 600 * 2016 * 95 // 100:
-        print("2016 block time difficulty raise")
+        msg.append("2016 block time difficulty raise")
         target -= (target >> 8)
 
     if MTP_diff > MTP_HIGH_BARRIER:
         target += target // MTP_TARGET_RAISE_FRAC
-        print("Difficulty drop: {}".format(MTP_diff))
+        msg.append("Difficulty drop {}".format(MTP_diff))
     elif MTP_diff < MTP_LOW_BARRIER:
         target -= target // MTP_TARGET_DROP_FRAC
-        print("Difficulty raise: {}".format(MTP_diff))
+        msg.append("Difficulty raise {}".format(MTP_diff))
     else:
-        print("Difficulty held: {}".format(MTP_diff))
+        msg,append("Difficulty held {}".format(MTP_diff))
 
     return target_to_bits(target)
 
@@ -178,7 +182,7 @@ def compute_target(first_index, last_index):
     work //= states[last_index].timestamp - states[first_index].timestamp
     return (2 << 255) // work - 1
 
-def next_bits_deadalnix():
+def next_bits_deadalnix(msg):
     N = len(states) - 1
     index_last = suitable_block_index(N)
     index_first = suitable_block_index(N - 2016)
@@ -189,15 +193,20 @@ def next_bits_deadalnix():
     next_target = interval_target
     if (fast_target < interval_target - (interval_target >> 2) or
         fast_target > interval_target + (interval_target >> 2)):
+        msg.append("fast target")
         next_target = fast_target
+    else:
+        msg.append("interval target")
 
     prev_target = bits_to_target(states[-1].bits)
     min_target = prev_target - (prev_target >> 3)
     if next_target < min_target:
+        msg.append("min target")
         return target_to_bits(min_target)
 
     max_target = prev_target + (prev_target >> 3)
     if next_target > max_target:
+        msg.append("max target")
         return target_to_bits(max_target)
 
     return target_to_bits(next_target)
@@ -210,6 +219,7 @@ def block_time(mean_time):
 
 def next_step():
     # First figure out our hashrate
+    msg = []
     high = 1.0 + VARIABLE_PCT / 100
     scale_fac = 50 / VARIABLE_PCT
     N = VARIABLE_WINDOW
@@ -221,11 +231,11 @@ def next_step():
     greedy_frac = states[-1].greedy_frac
     if mean_rev_ratio >= 1 + GREEDY_PCT / 100:
         if greedy_frac != 0.0:
-            print("Greedy miners left")
+            msg.append("Greedy miners left")
         greedy_frac = 0.0
     elif mean_rev_ratio <= 1 - GREEDY_PCT / 100:
         if greedy_frac != 1.0:
-            print("Greedy miners joined")
+            msg.append("Greedy miners joined")
         greedy_frac = 1.0
 
     hashrate = (STEADY_HASHRATE
@@ -233,9 +243,9 @@ def next_step():
                 + GREEDY_HASHRATE * greedy_frac)
     # Calculate our dynamic difficulty
     if DEADALNIX:
-        bits = next_bits_deadalnix()
+        bits = next_bits_deadalnix(msg)
     else:
-        bits = next_bits()
+        bits = next_bits(msg)
     target = bits_to_target(bits)
     # See how long we take to mine a block
     mean_hashes = pow(2, 256) // target
@@ -250,21 +260,36 @@ def next_step():
 
     # add a state
     states.append(State(states[-1].height + 1, timestamp, bits, chainwork,
-                        fx, hashrate, rev_ratio, greedy_frac))
+                        fx, hashrate, rev_ratio, greedy_frac, ' / '.join(msg)))
 
-if __name__ == '__main__':
-    N = len(states)
-    print_state()
+def main():
+    '''Outputs CSV data to stdout.   Final stats to stderr.'''
+    # Initial state is afer 2020 steady prefix blocks
+    N = 2020
+    for n in range(-N, 0):
+        state = State(INITIAL_HEIGHT + n, INITIAL_TIMESTAMP + n * 600,
+                      INITIAL_BCC_BITS, INITIAL_SINGLE_WORK * (n + N + 1),
+                      INITIAL_FX, INITIAL_HASHRATE, 1.0, False, '')
+        states.append(state)
+
+    # Run the simulation
+    print_headers()
     for n in range(10000):
         next_step()
         print_state()
-    states = states[N:]
 
-    mean = (states[-1].timestamp - states[0].timestamp) / (len(states) - 1)
-    block_times = [states[n + 1].timestamp - states[n].timestamp
-                   for n in range(len(states) - 1)]
+    # Drop the prefix blocks to be left with the simulation blocks
+    simul = states[N:]
+
+    mean = (simul[-1].timestamp - simul[0].timestamp) / (len(simul) - 1)
+    block_times = [simul[n + 1].timestamp - simul[n].timestamp
+                   for n in range(len(simul) - 1)]
     median = sorted(block_times)[len(block_times) // 2]
 
-    print("Mean block time: {}s".format(mean))
-    print("Median block time: {}s".format(median))
-    print("Max block time: {}s".format(max(block_times)))
+    print("Mean block time: {}s".format(mean), file=sys.stderr)
+    print("Median block time: {}s".format(median), file=sys.stderr)
+    print("Max block time: {}s".format(max(block_times)), file=sys.stderr)
+
+
+if __name__ == '__main__':
+    main()
