@@ -147,7 +147,7 @@ def next_bits(msg):
         target -= target // MTP_TARGET_DROP_FRAC
         msg.append("Difficulty raise {}".format(MTP_diff))
     else:
-        msg,append("Difficulty held {}".format(MTP_diff))
+        msg.append("Difficulty held {}".format(MTP_diff))
 
     return target_to_bits(target)
 
