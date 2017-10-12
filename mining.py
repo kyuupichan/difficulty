@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import argparse
 import datetime
 import math
 import sys
@@ -41,9 +42,6 @@ def target_to_hex(target):
     h = hex(target)[2:]
     return '0' * (64 - len(h)) + h
 
-# Set to true to run deadalnix's algo
-DEADALNIX = True
-
 TARGET_1 = bits_to_target(486604799)
 
 INITIAL_BCC_BITS = 403458999
@@ -53,16 +51,6 @@ INITIAL_TIMESTAMP = 1503430225
 INITIAL_HASHRATE = 500
 INITIAL_HEIGHT = 481824
 INITIAL_SINGLE_WORK = bits_to_work(INITIAL_BCC_BITS)
-
-# MTP window targetting.  High and low barriers have been chosen
-# to give ~600s block times in a stable hash rate environment
-# MTP_6: 256/256: 100/30   128/256: 112/30  64/256: 128/30
-# MTP_3: 128/256: 55/15  64/256: 55/15
-MTP_WINDOW = 6
-MTP_HIGH_BARRIER = 60 * 128
-MTP_TARGET_RAISE_FRAC = 64   # Reduce difficulty ~ 1.6%
-MTP_LOW_BARRIER = 60 * 30
-MTP_TARGET_DROP_FRAC = 256    # Raise difficulty ~ 0.4%
 
 # Steady hashrate mines the BCC chain all the time
 STEADY_HASHRATE = 300
@@ -81,7 +69,6 @@ VARIABLE_WINDOW = 6  # No of blocks averaged to determine revenue ratio
 GREEDY_HASHRATE = 2000
 GREEDY_PCT = 10
 GREEDY_WINDOW = 6
-
 
 State = namedtuple('State', 'height timestamp bits chainwork fx hashrate '
                    'rev_ratio greedy_frac msg')
@@ -112,7 +99,7 @@ def revenue_ratio(fx, BCC_target):
     '''Returns the instantaneous SWC revenue rate divided by the
     instantaneous BCC revenue rate.  A value less than 1.0 makes it
     attractive to mine BCC.  Greater than 1.0, SWC.'''
-    SWC_fees = 1.5 + 2.0 * random()
+    SWC_fees = 0.25 + 2.0 * random()
     SWC_revenue = 12.5 + SWC_fees
     SWC_target = bits_to_target(INITIAL_SWC_BITS)
 
@@ -126,25 +113,26 @@ def median_time_past(states):
     times = [state.timestamp for state in states]
     return sorted(times)[len(times) // 2]
 
-def next_bits(msg):
+def next_bits_k(msg, mtp_window, high_barrier, target_raise_frac,
+                low_barrier, target_drop_frac, fast_blocks_pct):
     # Calculate N-block MTP diff
     MTP_0 = median_time_past(states[-11:])
-    MTP_N = median_time_past(states[-11-MTP_WINDOW:-MTP_WINDOW])
+    MTP_N = median_time_past(states[-11-mtp_window:-mtp_window])
     MTP_diff = MTP_0 - MTP_N
     bits = states[-1].bits
     target = bits_to_target(bits)
 
     # Long term block production time stabiliser
     t = states[-1].timestamp - states[-2017].timestamp
-    if t < 600 * 2016 * 95 // 100:
+    if t < 600 * 2016 * fast_blocks_pct // 100:
         msg.append("2016 block time difficulty raise")
-        target -= (target >> 8)
+        target -= target // target_drop_frac
 
-    if MTP_diff > MTP_HIGH_BARRIER:
-        target += target // MTP_TARGET_RAISE_FRAC
+    if MTP_diff > high_barrier:
+        target += target // target_raise_frac
         msg.append("Difficulty drop {}".format(MTP_diff))
-    elif MTP_diff < MTP_LOW_BARRIER:
-        target -= target // MTP_TARGET_DROP_FRAC
+    elif MTP_diff < low_barrier:
+        target -= target // target_drop_frac
         msg.append("Difficulty raise {}".format(MTP_diff))
     else:
         msg.append("Difficulty held {}".format(MTP_diff))
@@ -182,7 +170,7 @@ def compute_target(first_index, last_index):
     work //= states[last_index].timestamp - states[first_index].timestamp
     return (2 << 255) // work - 1
 
-def next_bits_deadalnix(msg):
+def next_bits_d(msg):
     N = len(states) - 1
     index_last = suitable_block_index(N)
     index_first = suitable_block_index(N - 2016)
@@ -217,7 +205,7 @@ def block_time(mean_time):
     lmbda = 1 / mean_time
     return math.log(1 - sample) / -lmbda
 
-def next_step():
+def next_step(algo):
     # First figure out our hashrate
     msg = []
     high = 1.0 + VARIABLE_PCT / 100
@@ -242,10 +230,7 @@ def next_step():
                 + VARIABLE_HASHRATE * var_fraction
                 + GREEDY_HASHRATE * greedy_frac)
     # Calculate our dynamic difficulty
-    if DEADALNIX:
-        bits = next_bits_deadalnix(msg)
-    else:
-        bits = next_bits(msg)
+    bits = algo.next_bits(msg, **algo.params)
     target = bits_to_target(bits)
     # See how long we take to mine a block
     mean_hashes = pow(2, 256) // target
@@ -262,8 +247,48 @@ def next_step():
     states.append(State(states[-1].height + 1, timestamp, bits, chainwork,
                         fx, hashrate, rev_ratio, greedy_frac, ' / '.join(msg)))
 
+Algo = namedtuple('Algo', 'next_bits params')
+
+Algos = {
+    'k-1' : Algo(next_bits_k, {
+        'mtp_window': 6,
+        'high_barrier': 60 * 128,
+        'target_raise_frac': 64,   # Reduce difficulty ~ 1.6%
+        'low_barrier': 60 * 30,
+        'target_drop_frac': 256,   # Raise difficulty ~ 0.4%
+        'fast_blocks_pct': 95,
+    }),
+    'k-2' : Algo(next_bits_k, {
+        'mtp_window': 4,
+        'high_barrier': 60 * 55,
+        'target_raise_frac': 100,   # Reduce difficulty ~ 1.0%
+        'low_barrier': 60 * 36,
+        'target_drop_frac': 256,   # Raise difficulty ~ 0.4%
+        'fast_blocks_pct': 95,
+    }),
+    'k-3' : Algo(next_bits_k, {
+        'mtp_window': 2,
+        'high_barrier': 60 * 21,
+        'target_raise_frac': 70,   # Reduce difficulty ~ 3.0%
+        'low_barrier': 60 * 19,
+        'target_drop_frac': 140,   # Raise difficulty ~ 1.0%
+        'fast_blocks_pct': 95,
+    }),
+    'd-1' : Algo(next_bits_d, {}),
+}
+
+
 def main():
     '''Outputs CSV data to stdout.   Final stats to stderr.'''
+
+    parser = argparse.ArgumentParser('Run a mining simulation')
+    parser.add_argument('-a', '--algo', metavar='algo', type=str,
+                        choices = list(Algos.keys()),
+                        default = 'k-1', help='algorithm choice')
+    args = parser.parse_args()
+
+    algo = Algos.get(args.algo)
+
     # Initial state is afer 2020 steady prefix blocks
     N = 2020
     for n in range(-N, 0):
@@ -275,7 +300,7 @@ def main():
     # Run the simulation
     print_headers()
     for n in range(10000):
-        next_step()
+        next_step(algo)
         print_state()
 
     # Drop the prefix blocks to be left with the simulation blocks
@@ -289,7 +314,6 @@ def main():
     print("Mean block time: {}s".format(mean), file=sys.stderr)
     print("Median block time: {}s".format(median), file=sys.stderr)
     print("Max block time: {}s".format(max(block_times)), file=sys.stderr)
-
 
 if __name__ == '__main__':
     main()
