@@ -3,8 +3,8 @@
 import argparse
 import datetime
 import math
+import random
 import sys
-from random import random
 from collections import namedtuple
 from operator import attrgetter
 
@@ -99,11 +99,11 @@ def revenue_ratio(fx, BCC_target):
     '''Returns the instantaneous SWC revenue rate divided by the
     instantaneous BCC revenue rate.  A value less than 1.0 makes it
     attractive to mine BCC.  Greater than 1.0, SWC.'''
-    SWC_fees = 0.25 + 2.0 * random()
+    SWC_fees = 0.25 + 2.0 * random.random()
     SWC_revenue = 12.5 + SWC_fees
     SWC_target = bits_to_target(INITIAL_SWC_BITS)
 
-    BCC_fees = 0.2 * random()
+    BCC_fees = 0.2 * random.random()
     BCC_revenue = (12.5 + BCC_fees) * fx
 
     SWC_difficulty_ratio = BCC_target / SWC_target
@@ -201,11 +201,11 @@ def next_bits_d(msg):
 
 def block_time(mean_time):
     # Sample the exponential distn
-    sample = random()
+    sample = random.random()
     lmbda = 1 / mean_time
     return math.log(1 - sample) / -lmbda
 
-def next_step(algo):
+def next_step(algo, fx_jump_factor):
     # First figure out our hashrate
     msg = []
     high = 1.0 + VARIABLE_PCT / 100
@@ -238,7 +238,10 @@ def next_step(algo):
     time = int(block_time(mean_time) + 0.5)
     timestamp = states[-1].timestamp + time
     # Get a new FX rate
-    fx = states[-1].fx * (1.0 + (random() - 0.5) / 200)
+    fx = states[-1].fx * (1.0 + (random.random() - 0.5) / 200)
+    if fx_jump_factor != 1.0:
+        msg.append('FX jumped by factor {:.2f}'.format(fx_jump_factor))
+        fx *= fx_jump_factor
     rev_ratio = revenue_ratio(fx, target)
 
     chainwork = states[-1].chainwork + bits_to_work(bits)
@@ -297,10 +300,18 @@ def main():
                       INITIAL_FX, INITIAL_HASHRATE, 1.0, False, '')
         states.append(state)
 
+    # Add 10 randomly-timed FX jumps (up or down 10 and 15 percent) to
+    # see how algos recalibrate
+    fx_jumps = {}
+    factor_choices = [0.85, 0.9, 1.1, 1.15]
+    for n in range(10):
+        fx_jumps[random.randrange(10000)] = random.choice(factor_choices)
+
     # Run the simulation
     print_headers()
     for n in range(10000):
-        next_step(algo)
+        fx_jump_factor = fx_jumps.get(n, 1.0)
+        next_step(algo, fx_jump_factor)
         print_state()
 
     # Drop the prefix blocks to be left with the simulation blocks
