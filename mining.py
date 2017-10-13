@@ -48,25 +48,25 @@ INITIAL_BCC_BITS = 403458999
 INITIAL_SWC_BITS = 402734313
 INITIAL_FX = 0.18
 INITIAL_TIMESTAMP = 1503430225
-INITIAL_HASHRATE = 500
+INITIAL_HASHRATE = 500    # In PH/s.
 INITIAL_HEIGHT = 481824
 INITIAL_SINGLE_WORK = bits_to_work(INITIAL_BCC_BITS)
 
-# Steady hashrate mines the BCC chain all the time
+# Steady hashrate mines the BCC chain all the time.  In PH/s.
 STEADY_HASHRATE = 300
 
 # Variable hash is split across both chains according to relative
 # revenue.  If the revenue ratio for either chain is at least 15%
 # higher, everything switches.  Otherwise the proportion mining the
 # chain is linear between +- 15%.
-VARIABLE_HASHRATE = 2000
+VARIABLE_HASHRATE = 2000   # In PH/s.
 VARIABLE_PCT = 15   # 85% to 115%
 VARIABLE_WINDOW = 6  # No of blocks averaged to determine revenue ratio
 
 # Greedy hashrate switches chain if that chain is more profitable for
 # GREEDY_WINDOW BCC blocks.  It will only bother to switch if it has
 # consistently been GREEDY_PCT more profitable.
-GREEDY_HASHRATE = 2000
+GREEDY_HASHRATE = 2000     # In PH/s.
 GREEDY_PCT = 10
 GREEDY_WINDOW = 6
 
@@ -77,19 +77,21 @@ states = []
 
 def print_headers():
     print(', '.join(['Height', 'Block Time', 'Unix', 'Timestamp',
-                     'Difficulty (bn)', 'Hashrate (PH/s)', 'Rev Ratio',
-                     'Greedy?', 'Comments']))
+                     'Difficulty (bn)', 'Implied Difficulty (bn)',
+                     'Hashrate (PH/s)', 'Rev Ratio', 'Greedy?', 'Comments']))
 
 def print_state():
     state = states[-1]
     block_time = state.timestamp - states[-2].timestamp
     t = datetime.datetime.fromtimestamp(state.timestamp)
     difficulty = TARGET_1 / bits_to_target(state.bits)
+    implied_diff = TARGET_1 / ((2 << 255) / (state.hashrate * 1e15 * 600))
     print(', '.join(['{:d}'.format(state.height),
                      '{:d}'.format(block_time),
                      '{:d}'.format(state.timestamp),
                      '{:%Y-%m-%d %H:%M:%S}'.format(t),
                      '{:.2f}'.format(difficulty / 1e9),
+                     '{:.2f}'.format(implied_diff / 1e9),
                      '{:.0f}'.format(state.hashrate),
                      '{:.3f}'.format(state.rev_ratio),
                      'Yes' if state.greedy_frac == 1.0 else 'No',
@@ -272,9 +274,9 @@ Algos = {
     'k-3' : Algo(next_bits_k, {
         'mtp_window': 2,
         'high_barrier': 60 * 21,
-        'target_raise_frac': 70,   # Reduce difficulty ~ 3.0%
+        'target_raise_frac': 70,   # Reduce difficulty ~ 1.4%
         'low_barrier': 60 * 19,
-        'target_drop_frac': 140,   # Raise difficulty ~ 1.0%
+        'target_drop_frac': 140,   # Raise difficulty ~ 0.7%
         'fast_blocks_pct': 95,
     }),
     'd-1' : Algo(next_bits_d, {}),
