@@ -201,6 +201,17 @@ def next_bits_d(msg):
 
     return target_to_bits(next_target)
 
+def compute_cw_target(block_count):
+    first, last  = -1-block_count, -1
+    work = states[last].chainwork - states[first].chainwork
+    work *= 600
+    work //= states[last].timestamp - states[first].timestamp
+    return (2 << 255) // work - 1
+
+def next_bits_cw(msg, block_count):
+    interval_target = compute_cw_target(block_count)
+    return target_to_bits(interval_target)
+
 def block_time(mean_time):
     # Sample the exponential distn
     sample = random.random()
@@ -280,6 +291,18 @@ Algos = {
         'fast_blocks_pct': 95,
     }),
     'd-1' : Algo(next_bits_d, {}),
+    'cw-72' : Algo(next_bits_cw, {
+        'block_count': 72,
+    }),
+    'cw-108' : Algo(next_bits_cw, {
+        'block_count': 108,
+    }),
+    'cw-144' : Algo(next_bits_cw, {
+        'block_count': 144,
+    }),
+    'cw-180' : Algo(next_bits_cw, {
+        'block_count': 180,
+    }),
 }
 
 
