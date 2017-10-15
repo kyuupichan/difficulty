@@ -76,7 +76,7 @@ State = namedtuple('State', 'height timestamp bits chainwork fx hashrate '
 states = []
 
 def print_headers():
-    print(', '.join(['Height', 'Block Time', 'Unix', 'Timestamp',
+    print(', '.join(['Height', 'FX', 'Block Time', 'Unix', 'Timestamp',
                      'Difficulty (bn)', 'Implied Difficulty (bn)',
                      'Hashrate (PH/s)', 'Rev Ratio', 'Greedy?', 'Comments']))
 
@@ -87,6 +87,7 @@ def print_state():
     difficulty = TARGET_1 / bits_to_target(state.bits)
     implied_diff = TARGET_1 / ((2 << 255) / (state.hashrate * 1e15 * 600))
     print(', '.join(['{:d}'.format(state.height),
+                     '{:.8f}'.format(state.fx),
                      '{:d}'.format(block_time),
                      '{:d}'.format(state.timestamp),
                      '{:%Y-%m-%d %H:%M:%S}'.format(t),
