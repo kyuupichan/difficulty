@@ -220,9 +220,10 @@ def next_bits_wt(msg, block_count):
     for i in range(last, first, -1):
         target_i = bits_to_target(states[i].bits)
         time_i = states[i].timestamp - states[i-1].timestamp
-        adj_time_i = time_i * target_i // last_target
-        timespan += adj_time_i * 2 * (i - first) // block_count
-    target = last_target * timespan
+        adj_time_i = time_i * target_i // last_target # Difficulty weight
+        timespan += adj_time_i * (i - first) # Recency weight
+    timespan = timespan * 2 // (block_count + 1) # Normalize recency weight
+    target = last_target * timespan # Standard retarget
     target //= 600 * block_count
     return target_to_bits(target)
 
