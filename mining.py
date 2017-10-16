@@ -232,7 +232,13 @@ def block_time(mean_time):
     lmbda = 1 / mean_time
     return math.log(1 - sample) / -lmbda
 
-def next_step(algo, fx_jump_factor):
+def next_fx_random():
+    return states[-1].fx * (1.0 + (random.random() - 0.5) / 200)
+
+def next_fx_ramp():
+    return states[-1].fx * 1.00017149454
+
+def next_step(algo, scenario, fx_jump_factor):
     # First figure out our hashrate
     msg = []
     high = 1.0 + VARIABLE_PCT / 100
@@ -265,7 +271,7 @@ def next_step(algo, fx_jump_factor):
     time = int(block_time(mean_time) + 0.5)
     timestamp = states[-1].timestamp + time
     # Get a new FX rate
-    fx = states[-1].fx * (1.0 + (random.random() - 0.5) / 200)
+    fx = scenario.next_fx(**scenario.params)
     if fx_jump_factor != 1.0:
         msg.append('FX jumped by factor {:.2f}'.format(fx_jump_factor))
         fx *= fx_jump_factor
@@ -322,6 +328,15 @@ Algos = {
     }),
 }
 
+Scenario = namedtuple('Scenario', 'next_fx params')
+
+Scenarios = {
+    'default' : Scenario(next_fx_random, {
+    }),
+    'fxramp' : Scenario(next_fx_ramp, {
+    }),
+}
+
 
 def main():
     '''Outputs CSV data to stdout.   Final stats to stderr.'''
@@ -330,9 +345,13 @@ def main():
     parser.add_argument('-a', '--algo', metavar='algo', type=str,
                         choices = list(Algos.keys()),
                         default = 'k-1', help='algorithm choice')
+    parser.add_argument('-s', '--scenario', metavar='scenario', type=str,
+                        choices = list(Scenarios.keys()),
+                        default = 'default', help='scenario choice')
     args = parser.parse_args()
 
     algo = Algos.get(args.algo)
+    scenario = Scenarios.get(args.scenario)
 
     # Initial state is afer 2020 steady prefix blocks
     N = 2020
@@ -353,7 +372,7 @@ def main():
     print_headers()
     for n in range(10000):
         fx_jump_factor = fx_jumps.get(n, 1.0)
-        next_step(algo, fx_jump_factor)
+        next_step(algo, scenario, fx_jump_factor)
         print_state()
 
     # Drop the prefix blocks to be left with the simulation blocks
