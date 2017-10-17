@@ -348,7 +348,12 @@ def main():
     parser.add_argument('-s', '--scenario', metavar='scenario', type=str,
                         choices = list(Scenarios.keys()),
                         default = 'default', help='scenario choice')
+    parser.add_argument('-r', '--seed', metavar='seed', type=int,
+                        default = None, help='random seed')
     args = parser.parse_args()
+
+    if args.seed is not None:
+        random.seed(args.seed)
 
     algo = Algos.get(args.algo)
     scenario = Scenarios.get(args.scenario)
