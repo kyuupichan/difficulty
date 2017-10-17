@@ -229,9 +229,13 @@ def next_bits_wt(msg, block_count):
     first, last  = -1-block_count, -1
     last_target = bits_to_target(states[last].bits)
     timespan = 0
-    for i in range(last, first, -1):
+    prior_timestamp = states[first].timestamp
+    for i in range(first + 1, last + 1):
         target_i = bits_to_target(states[i].bits)
-        time_i = states[i].timestamp - states[i-1].timestamp
+        # Prevent negative time_i values
+        timestamp = max(states[i].timestamp, prior_timestamp)
+        time_i = timestamp - prior_timestamp
+        prior_timestamp = timestamp
         adj_time_i = time_i * target_i // last_target # Difficulty weight
         timespan += adj_time_i * (i - first) # Recency weight
     timespan = timespan * 2 // (block_count + 1) # Normalize recency weight
