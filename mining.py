@@ -4,6 +4,7 @@ import argparse
 import datetime
 import math
 import random
+import statistics
 import sys
 from collections import namedtuple
 from operator import attrgetter
@@ -303,14 +304,6 @@ Algos = {
         'target_drop_frac': 256,   # Raise difficulty ~ 0.4%
         'fast_blocks_pct': 95,
     }),
-    'k-3' : Algo(next_bits_k, {
-        'mtp_window': 2,
-        'high_barrier': 60 * 21,
-        'target_raise_frac': 70,   # Reduce difficulty ~ 1.4%
-        'low_barrier': 60 * 19,
-        'target_drop_frac': 140,   # Raise difficulty ~ 0.7%
-        'fast_blocks_pct': 95,
-    }),
     'd-1' : Algo(next_bits_d, {}),
     'cw-72' : Algo(next_bits_cw, {
         'block_count': 72,
@@ -387,9 +380,11 @@ def main():
     mean = (simul[-1].timestamp - simul[0].timestamp) / (len(simul) - 1)
     block_times = [simul[n + 1].timestamp - simul[n].timestamp
                    for n in range(len(simul) - 1)]
+    std_dev = statistics.stdev(block_times)
     median = sorted(block_times)[len(block_times) // 2]
 
     print("Mean block time: {}s".format(mean), file=sys.stderr)
+    print("Std deviation: {}s".format(std_dev), file=sys.stderr)
     print("Median block time: {}s".format(median), file=sys.stderr)
     print("Max block time: {}s".format(max(block_times)), file=sys.stderr)
 
