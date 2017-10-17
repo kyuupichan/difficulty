@@ -23,7 +23,15 @@ def bits_to_target(bits):
     else:
         return word << (8 * (size - 3))
 
+MAX_BITS = 0x1d00ffff
+MAX_TARGET = bits_to_target(MAX_BITS)
+
 def target_to_bits(target):
+    assert target > 0
+    if target > MAX_TARGET:
+        print('Warning: target went above maximum ({} > {})'
+              .format(target, MAX_TARGET), file=sys.stderr)
+        target = MAX_TARGET
     size = (target.bit_length() + 7) // 8
     mask64 = 0xffffffffffffffff
     if size <= 3:
@@ -34,6 +42,7 @@ def target_to_bits(target):
     if compact & 0x00800000:
         compact >>= 8
         size += 1
+
     assert compact == (compact & 0x007fffff)
     assert size < 256
     return compact | size << 24
