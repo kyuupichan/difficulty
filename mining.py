@@ -6,7 +6,9 @@ import math
 import random
 import statistics
 import sys
+import time
 from collections import namedtuple
+from functools import partial
 from operator import attrgetter
 
 def bits_to_target(bits):
@@ -331,26 +333,8 @@ Scenarios = {
     }),
 }
 
-
-def main():
-    '''Outputs CSV data to stdout.   Final stats to stderr.'''
-
-    parser = argparse.ArgumentParser('Run a mining simulation')
-    parser.add_argument('-a', '--algo', metavar='algo', type=str,
-                        choices = list(Algos.keys()),
-                        default = 'k-1', help='algorithm choice')
-    parser.add_argument('-s', '--scenario', metavar='scenario', type=str,
-                        choices = list(Scenarios.keys()),
-                        default = 'default', help='scenario choice')
-    parser.add_argument('-r', '--seed', metavar='seed', type=int,
-                        default = None, help='random seed')
-    args = parser.parse_args()
-
-    if args.seed is not None:
-        random.seed(args.seed)
-
-    algo = Algos.get(args.algo)
-    scenario = Scenarios.get(args.scenario)
+def run_one_simul(algo, scenario, print_it):
+    states.clear()
 
     # Initial state is afer 2020 steady prefix blocks
     N = 2020
@@ -368,25 +352,74 @@ def main():
         fx_jumps[random.randrange(10000)] = random.choice(factor_choices)
 
     # Run the simulation
-    print_headers()
+    if print_it:
+        print_headers()
     for n in range(10000):
         fx_jump_factor = fx_jumps.get(n, 1.0)
         next_step(algo, scenario, fx_jump_factor)
-        print_state()
+        if print_it:
+            print_state()
 
     # Drop the prefix blocks to be left with the simulation blocks
     simul = states[N:]
 
-    mean = (simul[-1].timestamp - simul[0].timestamp) / (len(simul) - 1)
     block_times = [simul[n + 1].timestamp - simul[n].timestamp
                    for n in range(len(simul) - 1)]
-    std_dev = statistics.stdev(block_times)
-    median = sorted(block_times)[len(block_times) // 2]
+    return block_times
 
-    print("Mean block time: {}s".format(mean), file=sys.stderr)
-    print("Std deviation: {}s".format(std_dev), file=sys.stderr)
-    print("Median block time: {}s".format(median), file=sys.stderr)
-    print("Max block time: {}s".format(max(block_times)), file=sys.stderr)
+
+def main():
+    '''Outputs CSV data to stdout.   Final stats to stderr.'''
+
+    parser = argparse.ArgumentParser('Run a mining simulation')
+    parser.add_argument('-a', '--algo', metavar='algo', type=str,
+                        choices = list(Algos.keys()),
+                        default = 'k-1', help='algorithm choice')
+    parser.add_argument('-s', '--scenario', metavar='scenario', type=str,
+                        choices = list(Scenarios.keys()),
+                        default = 'default', help='scenario choice')
+    parser.add_argument('-r', '--seed', metavar='seed', type=int,
+                        default = None, help='random seed')
+    parser.add_argument('-n', '--count', metavar='count', type=int,
+                        default = 1, help='count of simuls to run')
+    args = parser.parse_args()
+
+    count = max(1, args.count)
+    algo = Algos.get(args.algo)
+    scenario = Scenarios.get(args.scenario)
+    seed = int(time.time()) if args.seed is None else args.seed
+
+    to_stderr = partial(print, file=sys.stderr)
+    to_stderr("Starting seed {} for {} simuls".format(seed, count))
+
+    means = []
+    std_devs = []
+    medians = []
+    maxs = []
+    for loop in range(count):
+        random.seed(seed)
+        seed += 1
+        block_times = run_one_simul(algo, scenario, count == 1)
+        means.append(statistics.mean(block_times))
+        std_devs.append(statistics.stdev(block_times))
+        medians.append(sorted(block_times)[len(block_times) // 2])
+        maxs.append(max(block_times))
+
+    def stats(text, values):
+        if count == 1:
+            to_stderr('{} {}s'.format(text, values[0]))
+        else:
+            to_stderr('{}(s) Range {:0.1f}-{:0.1f} Mean {:0.1f} '
+                      'Std Dev {:0.1f} Median {:0.1f}'
+                      .format(text, min(values), max(values),
+                              statistics.mean(values),
+                              statistics.stdev(values),
+                              sorted(values)[len(values) // 2]))
+
+    stats("Mean   block time", means)
+    stats("StdDev block time", std_devs)
+    stats("Median block time", medians)
+    stats("Max    block time", maxs)
 
 if __name__ == '__main__':
     main()
