@@ -73,8 +73,8 @@ GREEDY_HASHRATE = 2000     # In PH/s.
 GREEDY_PCT = 10
 GREEDY_WINDOW = 6
 
-State = namedtuple('State', 'height timestamp bits chainwork fx hashrate '
-                   'rev_ratio greedy_frac msg')
+State = namedtuple('State', 'height wall_time timestamp bits chainwork fx '
+                   'hashrate rev_ratio greedy_frac msg')
 
 states = []
 
@@ -236,10 +236,10 @@ def block_time(mean_time):
     lmbda = 1 / mean_time
     return math.log(1 - sample) / -lmbda
 
-def next_fx_random():
-    return states[-1].fx * (1.0 + (random.random() - 0.5) / 200)
+def next_fx_random(r):
+    return states[-1].fx * (1.0 + (r - 0.5) / 200)
 
-def next_fx_ramp():
+def next_fx_ramp(r):
     return states[-1].fx * 1.00017149454
 
 def next_step(algo, scenario, fx_jump_factor):
@@ -263,7 +263,7 @@ def next_step(algo, scenario, fx_jump_factor):
             msg.append("Greedy miners joined")
         greedy_frac = 1.0
 
-    hashrate = (STEADY_HASHRATE
+    hashrate = (STEADY_HASHRATE + scenario.dr_hashrate
                 + VARIABLE_HASHRATE * var_fraction
                 + GREEDY_HASHRATE * greedy_frac)
     # Calculate our dynamic difficulty
@@ -273,9 +273,15 @@ def next_step(algo, scenario, fx_jump_factor):
     mean_hashes = pow(2, 256) // target
     mean_time = mean_hashes / (hashrate * 1e15)
     time = int(block_time(mean_time) + 0.5)
-    timestamp = states[-1].timestamp + time
+    wall_time = states[-1].wall_time + time
+    # Did the difficulty ramp hashrate get the block?
+    if random.random() < (scenario.dr_hashrate / hashrate):
+        timestamp = median_time_past(states[-11:]) + 1
+    else:
+        timestamp = wall_time
     # Get a new FX rate
-    fx = scenario.next_fx(**scenario.params)
+    rand = random.random()
+    fx = scenario.next_fx(rand, **scenario.params)
     if fx_jump_factor != 1.0:
         msg.append('FX jumped by factor {:.2f}'.format(fx_jump_factor))
         fx *= fx_jump_factor
@@ -284,8 +290,9 @@ def next_step(algo, scenario, fx_jump_factor):
     chainwork = states[-1].chainwork + bits_to_work(bits)
 
     # add a state
-    states.append(State(states[-1].height + 1, timestamp, bits, chainwork,
-                        fx, hashrate, rev_ratio, greedy_frac, ' / '.join(msg)))
+    states.append(State(states[-1].height + 1, wall_time, timestamp,
+                        bits, chainwork, fx, hashrate, rev_ratio,
+                        greedy_frac, ' / '.join(msg)))
 
 Algo = namedtuple('Algo', 'next_bits params')
 
@@ -324,13 +331,15 @@ Algos = {
     }),
 }
 
-Scenario = namedtuple('Scenario', 'next_fx params')
+Scenario = namedtuple('Scenario', 'next_fx params, dr_hashrate')
 
 Scenarios = {
-    'default' : Scenario(next_fx_random, {
-    }),
-    'fxramp' : Scenario(next_fx_ramp, {
-    }),
+    'default' : Scenario(next_fx_random, {}, 0),
+    'fxramp' : Scenario(next_fx_ramp, {}, 0),
+    # Difficulty rampers with given PH/s
+    'dr50' : Scenario(next_fx_random, {}, 50),
+    'dr75' : Scenario(next_fx_random, {}, 75),
+    'dr100' : Scenario(next_fx_random, {}, 100),
 }
 
 def run_one_simul(algo, scenario, print_it):
@@ -340,6 +349,7 @@ def run_one_simul(algo, scenario, print_it):
     N = 2020
     for n in range(-N, 0):
         state = State(INITIAL_HEIGHT + n, INITIAL_TIMESTAMP + n * 600,
+                      INITIAL_TIMESTAMP + n * 600,
                       INITIAL_BCC_BITS, INITIAL_SINGLE_WORK * (n + N + 1),
                       INITIAL_FX, INITIAL_HASHRATE, 1.0, False, '')
         states.append(state)
