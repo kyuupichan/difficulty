@@ -243,6 +243,44 @@ def next_bits_wt(msg, block_count):
     target //= 600 * block_count
     return target_to_bits(target)
 
+def next_bits_dgw3(msg, block_count):
+    ''' Dark Gravity Wave v3 from Dash '''
+    block_reading = -1 # dito
+    counted_blocks = 0
+    last_block_time = 0
+    actual_time_span = 0
+    past_difficulty_avg = 0
+    past_difficulty_avg_prev = 0
+    i = 1
+    while states[block_reading].height > 0:
+        if i > block_count:
+            break
+        counted_blocks += 1
+        if counted_blocks <= block_count:
+            if counted_blocks == 1:
+                past_difficulty_avg = bits_to_target(states[block_reading].bits)
+            else:
+                past_difficulty_avg = ((past_difficulty_avg_prev * counted_blocks) + bits_to_target(states[block_reading].bits)) // ( counted_blocks + 1 )
+        past_difficulty_avg_prev = past_difficulty_avg
+        if last_block_time > 0:
+            diff = last_block_time - states[block_reading].timestamp
+            actual_time_span += diff
+        last_block_time = states[block_reading].timestamp
+        block_reading -= 1
+        i += 1
+    target_time_span = counted_blocks * 600
+    target = past_difficulty_avg
+    if actual_time_span < (target_time_span // 3):
+        actual_time_span = target_time_span // 3
+    if actual_time_span > (target_time_span * 3):
+        actual_time_span = target_time_span * 3
+    target = target // target_time_span
+    target *= actual_time_span
+    if target > MAX_TARGET:
+        return MAX_BITS
+    else:
+        return target_to_bits(int(target))
+
 def block_time(mean_time):
     # Sample the exponential distn
     sample = random.random()
@@ -340,6 +378,12 @@ Algos = {
         'block_count': 180,
     }),
     'wt-144' : Algo(next_bits_wt, {
+        'block_count': 144,
+    }),
+    'dgw3-24' : Algo(next_bits_dgw3, { # 24-blocks, like Dash
+        'block_count': 24,
+    }),
+    'dgw3-144' : Algo(next_bits_dgw3, { # 1 full day
         'block_count': 144,
     }),
 }
