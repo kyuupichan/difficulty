@@ -281,6 +281,18 @@ def next_bits_dgw3(msg, block_count):
     else:
         return target_to_bits(int(target))
 
+def next_bits_m2(msg, window_1, window_2):
+    interval_target = compute_target(-1 - window_1, -1)
+    interval_target += compute_target(-2 - window_2, -2)
+    return target_to_bits(interval_target >> 1)
+
+def next_bits_m4(msg, window_1, window_2, window_3, window_4):
+    interval_target = compute_target(-1 - window_1, -1)
+    interval_target += compute_target(-2 - window_2, -2)
+    interval_target += compute_target(-3 - window_3, -3)
+    interval_target += compute_target(-4 - window_4, -4)
+    return target_to_bits(interval_target >> 2)
+
 def block_time(mean_time):
     # Sample the exponential distn
     sample = random.random()
@@ -385,6 +397,16 @@ Algos = {
     }),
     'dgw3-144' : Algo(next_bits_dgw3, { # 1 full day
         'block_count': 144,
+    }),
+    'meng-1' : Algo(next_bits_m2, { # mengerian_algo_1
+        'window_1': 71,
+        'window_2': 137,
+    }),
+    'meng-2' : Algo(next_bits_m4, { # mengerian_algo_2
+        'window_1': 13,
+        'window_2': 37,
+        'window_3': 71,
+        'window_4': 137,
     }),
 }
 
