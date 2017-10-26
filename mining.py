@@ -338,6 +338,9 @@ def next_step(algo, scenario, fx_jump_factor):
     N = VARIABLE_WINDOW
     mean_rev_ratio = sum(state.rev_ratio for state in states[-N:]) / N
     var_fraction = max(0, min(1, (high - mean_rev_ratio) * scale_fac))
+    if ((scenario.pump_144_threshold > 0) and
+        (states[-1-144+5].timestamp - states[-1-144].timestamp > scenario.pump_144_threshold)):
+        var_fraction = max(var_fraction, .25)
 
     N = GREEDY_WINDOW
     gready_rev_ratio = sum(state.rev_ratio for state in states[-N:]) / N
@@ -441,15 +444,16 @@ Algos = {
     })
 }
 
-Scenario = namedtuple('Scenario', 'next_fx params, dr_hashrate')
+Scenario = namedtuple('Scenario', 'next_fx params, dr_hashrate, pump_144_threshold')
 
 Scenarios = {
-    'default' : Scenario(next_fx_random, {}, 0),
-    'fxramp' : Scenario(next_fx_ramp, {}, 0),
+    'default' : Scenario(next_fx_random, {}, 0, 0),
+    'fxramp' : Scenario(next_fx_ramp, {}, 0, 0),
     # Difficulty rampers with given PH/s
-    'dr50' : Scenario(next_fx_random, {}, 50),
-    'dr75' : Scenario(next_fx_random, {}, 75),
-    'dr100' : Scenario(next_fx_random, {}, 100),
+    'dr50' : Scenario(next_fx_random, {}, 50, 0),
+    'dr75' : Scenario(next_fx_random, {}, 75, 0),
+    'dr100' : Scenario(next_fx_random, {}, 100, 0),
+    'pump-osc' : Scenario(next_fx_ramp, {}, 0, 8000)
 }
 
 def run_one_simul(algo, scenario, print_it):
