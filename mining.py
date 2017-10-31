@@ -238,31 +238,25 @@ def next_bits_cw(msg, block_count):
     interval_target = compute_cw_target(block_count)
     return target_to_bits(interval_target)
 
-def next_bits_wt(msg, block_count, limit_precision):
-    DIFF_WEIGHT_PRECISION = 1000000
-
+def next_bits_wt(msg, block_count):
     first, last  = -1-block_count, -1
-    last_target = bits_to_target(states[last].bits)
-    last_target_fixed = last_target // DIFF_WEIGHT_PRECISION
     timespan = 0
     prior_timestamp = states[first].timestamp
     for i in range(first + 1, last + 1):
         target_i = bits_to_target(states[i].bits)
+
         # Prevent negative time_i values
         timestamp = max(states[i].timestamp, prior_timestamp)
         time_i = timestamp - prior_timestamp
         prior_timestamp = timestamp
-        if limit_precision:
-            adj_time_i = time_i * (target_i // DIFF_WEIGHT_PRECISION) // last_target_fixed
-        else:
-            adj_time_i = time_i * target_i // last_target # Difficulty weight
+        adj_time_i = time_i * target_i # Difficulty weight
         timespan += adj_time_i * (i - first) # Recency weight
+
     timespan = timespan * 2 // (block_count + 1) # Normalize recency weight
-    target = last_target * timespan # Standard retarget
-    target //= 600 * block_count
+    target = timespan // (600 * block_count)
     return target_to_bits(target)
 
-def next_bits_wt_compare(msg, block_count, limit_precision):
+def next_bits_wt_compare(msg, block_count):
     with open("current_state.csv", 'w') as fh:
         for s in states:
             fh.write("%s,%s,%s\n" % (s.height, s.bits, s.timestamp))
@@ -274,7 +268,7 @@ def next_bits_wt_compare(msg, block_count, limit_precision):
     exit_code = process.wait()
 
     next_bits = int(next_bits.decode())
-    next_bits_py = next_bits_wt(msg, block_count, limit_precision)
+    next_bits_py = next_bits_wt(msg, block_count)
     if next_bits != next_bits_py:
         print("ERROR: Bits don't match. External %s, local %s" % (next_bits, next_bits_py))
         assert(next_bits == next_bits_py)
@@ -432,8 +426,7 @@ Algos = {
         'block_count': 180,
     }),
     'wt-144' : Algo(next_bits_wt, {
-        'block_count': 144,
-        'limit_precision' : False
+        'block_count': 144
     }),
     'dgw3-24' : Algo(next_bits_dgw3, { # 24-blocks, like Dash
         'block_count': 24,
@@ -453,8 +446,7 @@ Algos = {
     }),
     # runs wt-144 in external program, compares with python implementation.
     'wt-144-compare' : Algo(next_bits_wt_compare, {
-        'block_count': 144,
-        'limit_precision' : True
+        'block_count': 144
     })
 }
 
