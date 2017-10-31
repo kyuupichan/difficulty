@@ -373,8 +373,11 @@ def next_step(algo, scenario, fx_jump_factor):
     time = int(block_time(mean_time) + 0.5)
     wall_time = states[-1].wall_time + time
     # Did the difficulty ramp hashrate get the block?
-    if random.random() < (scenario.dr_hashrate / hashrate):
-        timestamp = median_time_past(states[-11:]) + 1
+    if random.random() < (abs(scenario.dr_hashrate) / hashrate):
+        if (scenario.dr_hashrate > 0):
+            timestamp = median_time_past(states[-11:]) + 1
+        else:
+            timestamp = wall_time + 2 * 60 * 60
     else:
         timestamp = wall_time
     # Get a new FX rate
@@ -459,7 +462,8 @@ Scenarios = {
     'dr50' : Scenario(next_fx_random, {}, 50, 0),
     'dr75' : Scenario(next_fx_random, {}, 75, 0),
     'dr100' : Scenario(next_fx_random, {}, 100, 0),
-    'pump-osc' : Scenario(next_fx_ramp, {}, 0, 8000)
+    'pump-osc' : Scenario(next_fx_ramp, {}, 0, 8000),
+    'ft100' : Scenario(next_fx_random, {}, -100, 0),
 }
 
 def run_one_simul(algo, scenario, print_it):
