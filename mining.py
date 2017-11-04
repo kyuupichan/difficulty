@@ -215,7 +215,9 @@ def next_bits_d(msg):
     return target_to_bits(next_target)
 
 def compute_cw_target(block_count):
-    first, last  = -1-block_count, -1
+    N = len(states) - 1
+    last = suitable_block_index(N)
+    first = suitable_block_index(N - block_count)
     timespan = states[last].timestamp - states[first].timestamp
     timespan = max(block_count * 600 // 2, min(block_count * 2 * 600, timespan))
     work = (states[last].chainwork - states[first].chainwork) * 600 // timespan
