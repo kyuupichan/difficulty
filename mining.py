@@ -82,6 +82,8 @@ GREEDY_HASHRATE = 2000     # In PH/s.
 GREEDY_PCT = 10
 GREEDY_WINDOW = 6
 
+IDEAL_BLOCK_TIME = 10 * 60
+
 State = namedtuple('State', 'height wall_time timestamp bits chainwork fx '
                    'hashrate rev_ratio greedy_frac msg')
 
@@ -97,7 +99,7 @@ def print_state():
     block_time = state.timestamp - states[-2].timestamp
     t = datetime.datetime.fromtimestamp(state.timestamp)
     difficulty = TARGET_1 / bits_to_target(state.bits)
-    implied_diff = TARGET_1 / ((2 << 255) / (state.hashrate * 1e15 * 600))
+    implied_diff = TARGET_1 / ((2 << 255) / (state.hashrate * 1e15 * IDEAL_BLOCK_TIME))
     print(', '.join(['{:d}'.format(state.height),
                      '{:.8f}'.format(state.fx),
                      '{:d}'.format(block_time),
@@ -139,7 +141,7 @@ def next_bits_k(msg, mtp_window, high_barrier, target_raise_frac,
 
     # Long term block production time stabiliser
     t = states[-1].timestamp - states[-2017].timestamp
-    if t < 600 * 2016 * fast_blocks_pct // 100:
+    if t < IDEAL_BLOCK_TIME * 2016 * fast_blocks_pct // 100:
         msg.append("2016 block time difficulty raise")
         target -= target // target_drop_frac
 
@@ -175,13 +177,13 @@ def compute_index_fast(index_last):
         if index_last - index_fast < 5:
             continue
         if (states[index_last].timestamp - states[index_fast].timestamp
-            >= 13 * 600):
+            >= 13 * IDEAL_BLOCK_TIME):
             return index_fast
     raise AssertionError('should not happen')
 
 def compute_target(first_index, last_index):
     work = states[last_index].chainwork - states[first_index].chainwork
-    work *= 600
+    work *= IDEAL_BLOCK_TIME
     work //= states[last_index].timestamp - states[first_index].timestamp
     return (2 << 255) // work - 1
 
@@ -219,8 +221,8 @@ def compute_cw_target(block_count):
     last = suitable_block_index(N)
     first = suitable_block_index(N - block_count)
     timespan = states[last].timestamp - states[first].timestamp
-    timespan = max(block_count * 600 // 2, min(block_count * 2 * 600, timespan))
-    work = (states[last].chainwork - states[first].chainwork) * 600 // timespan
+    timespan = max(block_count * IDEAL_BLOCK_TIME // 2, min(block_count * 2 * IDEAL_BLOCK_TIME, timespan))
+    work = (states[last].chainwork - states[first].chainwork) * IDEAL_BLOCK_TIME // timespan
     return (2 << 255) // work - 1
 
 def next_bits_sha(msg):
@@ -255,7 +257,7 @@ def next_bits_wt(msg, block_count):
         timespan += adj_time_i * (i - first) # Recency weight
 
     timespan = timespan * 2 // (block_count + 1) # Normalize recency weight
-    target = timespan // (600 * block_count)
+    target = timespan // (IDEAL_BLOCK_TIME * block_count)
     return target_to_bits(target)
 
 def next_bits_wt_compare(msg, block_count):
@@ -302,7 +304,7 @@ def next_bits_dgw3(msg, block_count):
         last_block_time = states[block_reading].timestamp
         block_reading -= 1
         i += 1
-    target_time_span = counted_blocks * 600
+    target_time_span = counted_blocks * IDEAL_BLOCK_TIME
     target = past_difficulty_avg
     if actual_time_span < (target_time_span // 3):
         actual_time_span = target_time_span // 3
@@ -326,6 +328,16 @@ def next_bits_m4(msg, window_1, window_2, window_3, window_4):
     interval_target += compute_target(-3 - window_3, -3)
     interval_target += compute_target(-4 - window_4, -4)
     return target_to_bits(interval_target >> 2)
+
+def next_bits_ema(msg, window):
+    block_time          = states[-1].timestamp - states[-2].timestamp
+    block_time          = max(IDEAL_BLOCK_TIME / 100, min(100 * IDEAL_BLOCK_TIME, block_time))          # Crudely dodge problems from ~0/negative/huge block times
+    old_hashrate_est    = TARGET_1 / bits_to_target(states[-1].bits)                                    # "Hashrate estimate" - aka difficulty!
+    block_weight        = 1 - math.exp(-block_time / window)                                            # Weight of last block_time seconds, according to exp moving avg
+    block_hashrate_est  = (IDEAL_BLOCK_TIME / block_time) * old_hashrate_est                            # Eg, if a block takes 2 min instead of 10, we est hashrate was ~5x higher than predicted
+    new_hashrate_est    = (1 - block_weight) * old_hashrate_est + block_weight * block_hashrate_est     # Simple weighted avg of old hashrate est, + block's adjusted hashrate est
+    new_target          = round(TARGET_1 / new_hashrate_est)
+    return target_to_bits(new_target)
 
 def block_time(mean_time):
     # Sample the exponential distn
@@ -452,6 +464,15 @@ Algos = {
     # runs wt-144 in external program, compares with python implementation.
     'wt-144-compare' : Algo(next_bits_wt_compare, {
         'block_count': 144
+    }),
+    'ema-30min' : Algo(next_bits_ema, { # Exponential moving avg
+        'window': 30 * 60,
+    }),
+    'ema-3h' : Algo(next_bits_ema, {
+        'window': 3 * 60 * 60,
+    }),
+    'ema-1d' : Algo(next_bits_ema, {
+        'window': 24 * 60 * 60,
     })
 }
 
@@ -474,8 +495,8 @@ def run_one_simul(algo, scenario, print_it):
     # Initial state is afer 2020 steady prefix blocks
     N = 2020
     for n in range(-N, 0):
-        state = State(INITIAL_HEIGHT + n, INITIAL_TIMESTAMP + n * 600,
-                      INITIAL_TIMESTAMP + n * 600,
+        state = State(INITIAL_HEIGHT + n, INITIAL_TIMESTAMP + n * IDEAL_BLOCK_TIME,
+                      INITIAL_TIMESTAMP + n * IDEAL_BLOCK_TIME,
                       INITIAL_BCC_BITS, INITIAL_SINGLE_WORK * (n + N + 1),
                       INITIAL_FX, INITIAL_HASHRATE, 1.0, False, '')
         states.append(state)
