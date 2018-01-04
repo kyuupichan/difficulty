@@ -89,6 +89,9 @@ State = namedtuple('State', 'height wall_time timestamp bits chainwork fx '
 
 states = []
 
+# This could be prettier if algorithms were classes
+wtema_target = 0
+
 def print_headers():
     print(', '.join(['Height', 'FX', 'Block Time', 'Unix', 'Timestamp',
                      'Difficulty (bn)', 'Implied Difficulty (bn)',
@@ -278,6 +281,13 @@ def next_bits_wt_compare(msg, block_count):
         assert(next_bits == next_bits_py)
     return next_bits
 
+def next_bits_wtema(msg, alpha_recip):
+    global wtema_target
+    block_time = states[-1].timestamp - states[-2].timestamp
+    target = bits_to_target(states[-1].bits)
+    weighted_target = target // IDEAL_BLOCK_TIME * block_time
+    wtema_target = weighted_target // alpha_recip + wtema_target // alpha_recip * (alpha_recip - 1)
+    return target_to_bits(wtema_target)
 
 def next_bits_dgw3(msg, block_count):
     ''' Dark Gravity Wave v3 from Dash '''
@@ -473,6 +483,9 @@ Algos = {
     }),
     'ema-1d' : Algo(next_bits_ema, {
         'window': 24 * 60 * 60,
+    }),
+    'wtema-72' : Algo(next_bits_wtema, {
+        'alpha_recip': 104, # floor(1/(1 - pow(.5, 1.0/72))), # half-life = 72
     })
 }
 
@@ -490,7 +503,9 @@ Scenarios = {
 }
 
 def run_one_simul(algo, scenario, print_it):
+    global wtema_target
     states.clear()
+    wtema_target = bits_to_target(INITIAL_BCC_BITS)
 
     # Initial state is afer 2020 steady prefix blocks
     N = 2020
