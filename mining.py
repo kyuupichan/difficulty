@@ -89,8 +89,6 @@ State = namedtuple('State', 'height wall_time timestamp bits chainwork fx '
 
 states = []
 
-# This could be prettier if algorithms were classes
-wtema_target = 0
 
 def print_headers():
     print(', '.join(['Height', 'FX', 'Block Time', 'Unix', 'Timestamp',
@@ -282,7 +280,7 @@ def next_bits_wt_compare(msg, block_count):
     return next_bits
 
 def next_bits_wtema(msg, alpha_recip):
-    # This algorithm is weighted-time exponential moving average.
+    # This algorithm is weighted-target exponential moving average.
     # Target is calculated based on inter-block times weighted by a
     # progressively decreasing factor for past inter-block times,
     # according to the parameter alpha.  If the single_block_target SBT is
@@ -526,9 +524,7 @@ Scenarios = {
 }
 
 def run_one_simul(algo, scenario, print_it):
-    global wtema_target
     states.clear()
-    wtema_target = bits_to_target(INITIAL_BCC_BITS)
 
     # Initial state is afer 2020 steady prefix blocks
     N = 2020
