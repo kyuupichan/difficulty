@@ -290,7 +290,7 @@ def next_bits_wtema(msg, alpha_recip):
     #    next_target = SBT * α + prior_target * (1 - α)
     # Substituting and factorizing:
     #    next_target = prior_target * α / ideal_block_time
-    #                  * (actual_block_time + (1 / α - 1) * ideal_block_time)
+    #                  * (block_time + (1 / α - 1) * ideal_block_time)
     # We use the reciprocal of alpha as an integer to avoid floating
     # point arithmetic.  Doing so the above formula maintains precision and
     # avoids overflows wih large targets in regtest
