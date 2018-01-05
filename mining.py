@@ -237,7 +237,7 @@ def next_bits_sha(msg):
     # block SHAx2 % len(primes), but that data is not available
     # in this simulation
     prime = primes[states[-1].timestamp % len(primes)]
-    
+
     interval_target = compute_cw_target(prime)
     return target_to_bits(interval_target)
 
@@ -283,19 +283,24 @@ def next_bits_wt_compare(msg, block_count):
 
 def next_bits_wtema(msg, alpha_recip):
     # This algorithm is weighted-time exponential moving average.
-    # Target is calculated based on inter-block times weighted by a progressively
-    # decreasing factor for past inter-block times, according to the parameter alpha.
-    # If the single_block_target is calculated as: 
-    # single_block_target = previous_target * actual_block_interval / ideal_block_interval
-    # then: wtema_target = single_block_target * alpha + previous_target * (1 - alpha)
-    # Substituting in single_block_target, and using the reciprocal of alpha to make it an integer yields:
-    # wtema_target = (previous_target / alpha_recip) * (actual_block_interval / ideal_block_interval + alpha_recip -1)
-    # We then re-arrange for interger math, while maintaining precision and avoiding overflows. 
+    # Target is calculated based on inter-block times weighted by a
+    # progressively decreasing factor for past inter-block times,
+    # according to the parameter alpha.  If the single_block_target SBT is
+    # calculated as:
+    #    SBT = prior_target * block_time / ideal_block_time
+    # then:
+    #    next_target = SBT * α + prior_target * (1 - α)
+    # Substituting and factorizing:
+    #    next_target = prior_target * α / ideal_block_time
+    #                  * (actual_block_time + (1 / α - 1) * ideal_block_time)
+    # We use the reciprocal of alpha as an integer to avoid floating
+    # point arithmetic.  Doing so the above formula maintains precision and
+    # avoids overflows wih large targets in regtest
     block_time = states[-1].timestamp - states[-2].timestamp
-    wtema_target = bits_to_target(states[-1].bits)
-    wtema_target //= IDEAL_BLOCK_TIME * alpha_recip
-    wtema_target *= block_time + IDEAL_BLOCK_TIME * (alpha_recip - 1)
-    return target_to_bits(wtema_target)
+    prior_target = bits_to_target(states[-1].bits)
+    next_target = prior_target // (IDEAL_BLOCK_TIME * alpha_recip)
+    next_target *= block_time + IDEAL_BLOCK_TIME * (alpha_recip - 1)
+    return target_to_bits(next_target)
 
 def next_bits_dgw3(msg, block_count):
     ''' Dark Gravity Wave v3 from Dash '''
