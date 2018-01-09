@@ -351,6 +351,15 @@ def next_bits_m4(msg, window_1, window_2, window_3, window_4):
     return target_to_bits(interval_target >> 2)
 
 def next_bits_ema(msg, window):
+    """This calculates difficulty (1/target) as proportional to the recent hashrate, where "recent hashrate" is estimated by an EMA (exponential moving avg) of recent "hashrate observations", and
+    a "hashrate observation" is inferred from each block time.
+
+    Eg, suppose our hashrate estimate before the last block B was H, and thus our difficulty D was proportional to H, intended to yield (on average) a 10-minute block.  But suppose in fact
+    block B was mined after only 2 minutes.  Then we infer that during those 2 minutes, hashrate was ~5H, and update our next block's hashrate estimate (and thus difficulty) upwards accordingly.
+
+    In particular, blocks twice as long get twice the weight: a 1-second block tells us hashrate was (probably) high for only 1 second, but a 24-hour block tells us hashrate was (probably) low
+    for a full day - the latter *should* get much more weight in our "recent hashrate" estimate."""
+
     block_time          = states[-1].timestamp - states[-2].timestamp
     block_time          = max(IDEAL_BLOCK_TIME / 100, min(100 * IDEAL_BLOCK_TIME, block_time))          # Crudely dodge problems from ~0/negative/huge block times
     old_hashrate_est    = TARGET_1 / bits_to_target(states[-1].bits)                                    # "Hashrate estimate" - aka difficulty!
@@ -360,11 +369,65 @@ def next_bits_ema(msg, window):
     new_target          = round(TARGET_1 / new_hashrate_est)
     return target_to_bits(new_target)
 
-def next_bits_ema_int_approx(msg, window):      # An integer-math approximation of next_bits_ema() above
-    block_time = states[-1].timestamp - states[-2].timestamp
-    block_time = max(IDEAL_BLOCK_TIME // 100, min(100 * IDEAL_BLOCK_TIME, window, block_time))         # Need block_time <= window for the linear approx below to work (approximate the above)
+def next_bits_ema2(msg, window):
+    # A minor reworking of next_bits_ema() above, meant to produce almost exactly the same numbers in typical cases, but be more resilient to huge/0/negative block times.
+    max_prev_timestamp = max(state.timestamp for state in states[-100:-1])
+    block_time = max(min(IDEAL_BLOCK_TIME, window) / 100, states[-1].timestamp - max_prev_timestamp)    # Luckily our target formula is ~flat near 0, so can floor block_time at some small val
     old_target = bits_to_target(states[-1].bits)
-    new_target = old_target * window // (window + IDEAL_BLOCK_TIME - block_time)                       # Int-math approx of the above.  Relies on the block_time <= window constraint above
+    new_target = round(old_target / (1 - math.expm1(-block_time / window) * (IDEAL_BLOCK_TIME / block_time - 1)))
+    return target_to_bits(new_target)
+
+def next_bits_ema_int_approx(msg, window):
+    # An integer-math simplified approximation of next_bits_ema2() above.
+    max_prev_timestamp = max(state.timestamp for state in states[-100:-1])
+    block_time = max(0, min(window, states[-1].timestamp - max_prev_timestamp))                         # Need block_time <= window for the linear approx below to work (approximate the above)
+    old_target = bits_to_target(states[-1].bits)
+    new_target = old_target * window // (window + IDEAL_BLOCK_TIME - block_time)                        # Simplifies the corresponding line above via this approx: for 0 <= x << 1, 1-e**(-x) =~ x
+    return target_to_bits(new_target)
+
+def exp_int_approx(x, decimals=9):
+    """Approximates e**(x / 10**decimals) using integer math, returning the answer scaled by the same number of dec places as the input.  Eg:
+    exp_int_approx(1000000, 6) ->  2718281 (e**1 = 2.718281)
+    exp_int_approx(3000, 3)    -> 20085    (e**3 = 20.085)
+    exp_int_approx(500, 3)     ->  1648    (e**0.5 = 1.648)"""
+    assert type(x) is int, str(type(x))                                             # If we pass in a non-int, something has gone wrong
+
+    scaling, scaling_2 = 10**decimals, 10**(2*decimals)
+    h = max(0, int.bit_length(x) - int.bit_length(scaling) + 4)                     # h = the number of times we halve x before using our fancy approximation
+    term1, term2 = 3 * scaling << h, 3 * scaling_2 << (2*h)                         # Terms from the hairy but accurate approximation we're using - see https://math.stackexchange.com/a/56064
+    hth_square_root_of_e_x = scaling_2 * ((x + term1)**2 + term2) // ((x - term1)**2 + term2)
+
+    e_x = hth_square_root_of_e_x                                                    # Now just need to square hth_square_root_of_e_x h times, while repeatedly dividing out our scaling factor
+    for i in range(h):
+        e_x = e_x**2 // scaling_2
+    return e_x // scaling                                                           # And finally, we still have one extra scaling factor to divide out.
+
+def next_bits_ema_int_approx2(msg, window):
+    # An integer-math version of next_bits_ema2() above, trying to retain the correct exponential behavior for very long block times.
+    max_prev_timestamp = max(state.timestamp for state in states[-100:-1])
+    block_time = max(min(IDEAL_BLOCK_TIME, window) // 100, states[-1].timestamp - max_prev_timestamp)
+    old_target = bits_to_target(states[-1].bits)
+    decimals = 9
+    scaling = 10**decimals
+    new_target = scaling**2 * old_target // (scaling**2 - (exp_int_approx(scaling * -block_time // window, decimals) - scaling) * (scaling * IDEAL_BLOCK_TIME // block_time - scaling))
+    return target_to_bits(new_target)
+
+def next_bits_simple_exponential(msg, window):
+    # Dead simple: if the block time is IDEAL_BLOCK_TIME, target is unchanged; if it's more (or less) by n (-n) minutes, scale target by e**(n/window).
+    # One nice thing about this is it avoids any need for special handling of huge/0/negative block times.  Eg, successive block times of (-1000000, 1000020) (or vice versa) result in
+    # *exactly* the same target as (10, 10).  (This is in fact the only algo with this property!)
+    block_time = states[-1].timestamp - states[-2].timestamp
+    old_target = bits_to_target(states[-1].bits)
+    new_target = round(math.exp((block_time - IDEAL_BLOCK_TIME) / window) * old_target)
+    return target_to_bits(new_target)
+
+def next_bits_simple_exponential_int_approx(msg, window):
+    # An integer-math version of next_bits_simple_exponential() above.
+    block_time = states[-1].timestamp - states[-2].timestamp
+    old_target = bits_to_target(states[-1].bits)
+    decimals = 9
+    scaling = 10**decimals
+    new_target = exp_int_approx(scaling * (block_time - IDEAL_BLOCK_TIME) // window, decimals) * old_target // scaling
     return target_to_bits(new_target)
 
 def block_time(mean_time):
@@ -502,12 +565,24 @@ Algos = {
     'ema-1d' : Algo(next_bits_ema, {
         'window': 24 * 60 * 60,
     }),
+    'ema2-1d' : Algo(next_bits_ema2, {
+        'window': 24 * 60 * 60,
+    }),
     'emai-1d' : Algo(next_bits_ema_int_approx, {
+        'window': 24 * 60 * 60,
+    }),
+    'emai2-1d' : Algo(next_bits_ema_int_approx2, {
         'window': 24 * 60 * 60,
     }),
     'wtema-72' : Algo(next_bits_wtema, {
         'alpha_recip': 104, # floor(1/(1 - pow(.5, 1.0/72))), # half-life = 72
-    })
+    }),
+    'simpexp-1d' : Algo(next_bits_simple_exponential, {
+        'window': 24 * 60 * 60,
+    }),
+    'simpexpi-1d' : Algo(next_bits_simple_exponential_int_approx, {
+        'window': 24 * 60 * 60,
+    }),
 }
 
 Scenario = namedtuple('Scenario', 'next_fx params, dr_hashrate, pump_144_threshold')
