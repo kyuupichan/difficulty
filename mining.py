@@ -188,35 +188,6 @@ def compute_target(first_index, last_index):
     work //= states[last_index].timestamp - states[first_index].timestamp
     return (2 << 255) // work - 1
 
-def next_bits_d(msg):
-    N = len(states) - 1
-    index_last = suitable_block_index(N)
-    index_first = suitable_block_index(N - 2016)
-    interval_target = compute_target(index_first, index_last)
-    index_fast = compute_index_fast(index_last)
-    fast_target = compute_target(index_fast, index_last)
-
-    next_target = interval_target
-    if (fast_target < interval_target - (interval_target >> 2) or
-        fast_target > interval_target + (interval_target >> 2)):
-        msg.append("fast target")
-        next_target = fast_target
-    else:
-        msg.append("interval target")
-
-    prev_target = bits_to_target(states[-1].bits)
-    min_target = prev_target - (prev_target >> 3)
-    if next_target < min_target:
-        msg.append("min target")
-        return target_to_bits(min_target)
-
-    max_target = prev_target + (prev_target >> 3)
-    if next_target > max_target:
-        msg.append("max target")
-        return target_to_bits(max_target)
-
-    return target_to_bits(next_target)
-
 def compute_cw_target(block_count):
     N = len(states) - 1
     last = suitable_block_index(N)
@@ -225,19 +196,6 @@ def compute_cw_target(block_count):
     timespan = max(block_count * IDEAL_BLOCK_TIME // 2, min(block_count * 2 * IDEAL_BLOCK_TIME, timespan))
     work = (states[last].chainwork - states[first].chainwork) * IDEAL_BLOCK_TIME // timespan
     return (2 << 255) // work - 1
-
-def next_bits_sha(msg):
-    primes = [73, 79, 83, 89, 97,
-              101, 103, 107, 109, 113, 127,
-              131, 137, 139, 149, 151]
-
-    # The timestamp % len(primes) is a proxy for previous
-    # block SHAx2 % len(primes), but that data is not available
-    # in this simulation
-    prime = primes[states[-1].timestamp % len(primes)]
-
-    interval_target = compute_cw_target(prime)
-    return target_to_bits(interval_target)
 
 def next_bits_cw(msg, block_count):
     interval_target = compute_cw_target(block_count)
@@ -299,56 +257,6 @@ def next_bits_wtema(msg, alpha_recip):
     next_target = prior_target // (IDEAL_BLOCK_TIME * alpha_recip)
     next_target *= block_time + IDEAL_BLOCK_TIME * (alpha_recip - 1)
     return target_to_bits(next_target)
-
-def next_bits_dgw3(msg, block_count):
-    ''' Dark Gravity Wave v3 from Dash '''
-    block_reading = -1 # dito
-    counted_blocks = 0
-    last_block_time = 0
-    actual_time_span = 0
-    past_difficulty_avg = 0
-    past_difficulty_avg_prev = 0
-    i = 1
-    while states[block_reading].height > 0:
-        if i > block_count:
-            break
-        counted_blocks += 1
-        if counted_blocks <= block_count:
-            if counted_blocks == 1:
-                past_difficulty_avg = bits_to_target(states[block_reading].bits)
-            else:
-                past_difficulty_avg = ((past_difficulty_avg_prev * counted_blocks) + bits_to_target(states[block_reading].bits)) // ( counted_blocks + 1 )
-        past_difficulty_avg_prev = past_difficulty_avg
-        if last_block_time > 0:
-            diff = last_block_time - states[block_reading].timestamp
-            actual_time_span += diff
-        last_block_time = states[block_reading].timestamp
-        block_reading -= 1
-        i += 1
-    target_time_span = counted_blocks * IDEAL_BLOCK_TIME
-    target = past_difficulty_avg
-    if actual_time_span < (target_time_span // 3):
-        actual_time_span = target_time_span // 3
-    if actual_time_span > (target_time_span * 3):
-        actual_time_span = target_time_span * 3
-    target = target // target_time_span
-    target *= actual_time_span
-    if target > MAX_TARGET:
-        return MAX_BITS
-    else:
-        return target_to_bits(int(target))
-
-def next_bits_m2(msg, window_1, window_2):
-    interval_target = compute_target(-1 - window_1, -1)
-    interval_target += compute_target(-2 - window_2, -2)
-    return target_to_bits(interval_target >> 1)
-
-def next_bits_m4(msg, window_1, window_2, window_3, window_4):
-    interval_target = compute_target(-1 - window_1, -1)
-    interval_target += compute_target(-2 - window_2, -2)
-    interval_target += compute_target(-3 - window_3, -3)
-    interval_target += compute_target(-4 - window_4, -4)
-    return target_to_bits(interval_target >> 2)
 
 def next_bits_ema(msg, window):
     """This calculates difficulty (1/target) as proportional to the recent hashrate, where "recent hashrate" is estimated by an EMA (exponential moving avg) of recent "hashrate observations", and
@@ -511,46 +419,11 @@ Algos = {
         'target_drop_frac': 256,   # Raise difficulty ~ 0.4%
         'fast_blocks_pct': 95,
     }),
-    'k-2' : Algo(next_bits_k, {
-        'mtp_window': 4,
-        'high_barrier': 60 * 55,
-        'target_raise_frac': 100,   # Reduce difficulty ~ 1.0%
-        'low_barrier': 60 * 36,
-        'target_drop_frac': 256,   # Raise difficulty ~ 0.4%
-        'fast_blocks_pct': 95,
-    }),
-    'd-1' : Algo(next_bits_d, {}),
-    'cw-72' : Algo(next_bits_cw, {
-        'block_count': 72,
-    }),
-    'cw-108' : Algo(next_bits_cw, {
-        'block_count': 108,
-    }),
     'cw-144' : Algo(next_bits_cw, {
         'block_count': 144,
     }),
-    'cw-sha-16' : Algo(next_bits_sha, {}),
-    'cw-180' : Algo(next_bits_cw, {
-        'block_count': 180,
-    }),
     'wt-144' : Algo(next_bits_wt, {
         'block_count': 144
-    }),
-    'dgw3-24' : Algo(next_bits_dgw3, { # 24-blocks, like Dash
-        'block_count': 24,
-    }),
-    'dgw3-144' : Algo(next_bits_dgw3, { # 1 full day
-        'block_count': 144,
-    }),
-    'meng-1' : Algo(next_bits_m2, { # mengerian_algo_1
-        'window_1': 71,
-        'window_2': 137,
-    }),
-    'meng-2' : Algo(next_bits_m4, { # mengerian_algo_2
-        'window_1': 13,
-        'window_2': 37,
-        'window_3': 71,
-        'window_4': 137,
     }),
     # runs wt-144 in external program, compares with python implementation.
     'wt-144-compare' : Algo(next_bits_wt_compare, {
@@ -576,6 +449,9 @@ Algos = {
     }),
     'wtema-72' : Algo(next_bits_wtema, {
         'alpha_recip': 104, # floor(1/(1 - pow(.5, 1.0/72))), # half-life = 72
+    }),
+    'wtema-100' : Algo(next_bits_wtema, {
+        'alpha_recip': 144, # floor(1/(1 - pow(.5, 1.0/100))), # half-life = 100
     }),
     'simpexp-1d' : Algo(next_bits_simple_exponential, {
         'window': 24 * 60 * 60,
