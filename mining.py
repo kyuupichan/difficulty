@@ -256,6 +256,10 @@ def next_bits_wtema(msg, alpha_recip):
     prior_target = bits_to_target(states[-1].bits)
     next_target = prior_target // (IDEAL_BLOCK_TIME * alpha_recip)
     next_target *= block_time + IDEAL_BLOCK_TIME * (alpha_recip - 1)
+    # Constrain individual target changes to 12.5%
+    max_change = prior_target >> 3
+    next_target = max(min(next_target, prior_target + max_change),
+                      prior_target - max_change)
     return target_to_bits(next_target)
 
 def next_bits_ema(msg, window):
