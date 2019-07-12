@@ -367,13 +367,13 @@ def next_step(algo, scenario, fx_jump_factor):
         var_fraction = max(var_fraction, .25)
 
     N = GREEDY_WINDOW
-    gready_rev_ratio = sum(state.rev_ratio for state in states[-N:]) / N
+    greedy_rev_ratio = sum(state.rev_ratio for state in states[-N:]) / N
     greedy_frac = states[-1].greedy_frac
-    if mean_rev_ratio >= 1 + GREEDY_PCT / 100:
+    if greedy_rev_ratio >= 1 + GREEDY_PCT / 100:
         if greedy_frac != 0.0:
             msg.append("Greedy miners left")
         greedy_frac = 0.0
-    elif mean_rev_ratio <= 1 - GREEDY_PCT / 100:
+    elif greedy_rev_ratio <= 1 - GREEDY_PCT / 100:
         if greedy_frac != 1.0:
             msg.append("Greedy miners joined")
         greedy_frac = 1.0
